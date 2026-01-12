@@ -1,19 +1,3 @@
-"""
-CHALLENGING SPRING SLIDER TRAINING PIPELINE
-============================================
-
-HARDER SETTINGS to create protocol differentiation:
-1. ✅ Tighter tolerance: 1cm (instead of 2cm) - MORE PRECISE
-2. ✅ Wider stiffness range: 100-1500 N/m - MORE EXTREME
-3. ✅ More protocols: 8 total (includes random, decreasing, larger increments)
-4. ✅ Longer episodes: 700 steps (more time for precision)
-5. ✅ More test points: 15 unseen stiffnesses
-
-Expected: Protocols will now show clear differentiation!
-
-Just run: python challenging_run_everything.py
-"""
-
 import numpy as np
 import matplotlib.pyplot as plt
 import seaborn as sns
@@ -28,32 +12,24 @@ import gymnasium as gym
 from gymnasium import spaces
 
 
-# ============================================================================
-# IMPROVED ENVIRONMENT (Same as before but 1cm tolerance)
-# ============================================================================
-
 class ChallengingSpringSliderEnv(SpringSliderEnv):
-    """
-    Challenging version with tighter tolerance.
-    """
+
 
     def __init__(self, **kwargs):
-        # Override with HARDER settings
         if 'target_tolerance' not in kwargs:
-            kwargs['target_tolerance'] = 0.01  # 1cm tolerance (harder!)
+            kwargs['target_tolerance'] = 0.01  # 1cm tolerance
 
         super().__init__(**kwargs)
 
-        # Keep fixes from improved version
-        self.max_force = 200.0  # Agent CAN reach targets
+        self.max_force = 200.0
 
         # Better reward weights
         self.reward_weights = {
-            'accuracy': 300.0,  # Even higher priority on accuracy
+            'accuracy': 300.0,
             'peak_force': 0.002,
             'peak_velocity': 0.3,
             'time': 0.05,
-            'success_bonus': 200.0  # Bigger bonus for 1cm precision
+            'success_bonus': 200.0
         }
 
     def _calculate_reward(self, position, velocity, episode_ended):
@@ -83,21 +59,18 @@ class ChallengingSpringSliderEnv(SpringSliderEnv):
 gym.register(
     id='ChallengingSpringSlider-v0',
     entry_point='__main__:ChallengingSpringSliderEnv',
-    max_episode_steps=700,  # More time for precision
+    max_episode_steps=700,
 )
 
-# ============================================================================
-# CHALLENGING CONFIGURATION - 8 PROTOCOLS!
-# ============================================================================
 
 CONFIG = {
     'algorithm': 'SAC',
-    'timesteps_per_protocol': 150000,  # Reduced from 250k (40% faster!)
+    'timesteps_per_protocol': 150000,
     'target_distance': 0.20,
 
-    # 5 KEY PROTOCOLS - Focused comparison (FASTER!)
+    # 5 KEY PROTOCOLS
     'protocols': {
-        # Small increments (proven winner)
+        # Small increments
         'linear_small': {
             'type': 'linear',
             'start': 50,
@@ -106,7 +79,7 @@ CONFIG = {
             'description': 'Linear +40 N/m (50-610 N/m)'
         },
 
-        # LARGE increments (for contrast)
+        # Large increments
         'linear_large': {
             'type': 'linear',
             'start': 50,
@@ -124,7 +97,7 @@ CONFIG = {
             'description': 'Logarithmic 50-600 N/m (medical range)'
         },
 
-        # RANDOM sampling
+        # Random sampling
         'random_sampling': {
             'type': 'random',
             'min': 50,
@@ -134,22 +107,22 @@ CONFIG = {
             'description': 'Random stiffnesses 50-600 N/m'
         },
 
-        # PATIENT CATEGORIES (NEW! - For intubation training)
+        # Patient categories
         'patient_categories': {
             'type': 'custom',
             'levels': [
-                # Easy patients (relaxed jaw)
+                # Easy anatomical stiffness
                 50, 75, 100, 125, 150,
-                # Normal patients (typical resistance)
+                # Normal anatomical stiffness
                 175, 200, 225, 275, 325,
-                # Difficult patients (stiff jaw)
+                # Difficult anatomical stiffness
                 350, 400, 475, 550, 600
             ],
-            'description': 'Patient-based: easy→normal→difficult (intubation training)'
+            'description': 'Patient-based: easy, normal, difficult anatomical stiffness'
         },
     },
 
-    # Medical test stiffnesses (unseen values within 50-600 N/m range)
+    # Test stiffnesses (14 unseen values)
     'eval_episodes_per_stiffness': 30,
     'test_stiffnesses': [
         # Easy patient range
@@ -165,10 +138,6 @@ CONFIG = {
     'plots_dir': 'plots_challenging',
 }
 
-
-# ============================================================================
-# PROTOCOL MANAGER (ENHANCED)
-# ============================================================================
 
 class ProtocolManager:
     @staticmethod
@@ -208,10 +177,6 @@ class ProtocolManager:
         else:
             raise ValueError(f"Unknown protocol type: {ptype}")
 
-
-# ============================================================================
-# METRICS CALLBACK
-# ============================================================================
 
 class ChallengingMetricsCallback(BaseCallback):
     def __init__(self, protocol_name, verbose=1):
@@ -255,10 +220,6 @@ class ChallengingMetricsCallback(BaseCallback):
         return True
 
 
-# ============================================================================
-# CURRICULUM ENVIRONMENT
-# ============================================================================
-
 class CurriculumEnv(ChallengingSpringSliderEnv):
     def __init__(self, stiffness_levels, target_distance=0.20, **kwargs):
         self.stiffness_levels = stiffness_levels
@@ -275,10 +236,6 @@ class CurriculumEnv(ChallengingSpringSliderEnv):
         return super().reset(**kwargs)
 
 
-# ============================================================================
-# TRAINING FUNCTION
-# ============================================================================
-
 def train_protocol(protocol_name, protocol_config, config):
     print("\n" + "=" * 80)
     print(f"TRAINING: {protocol_name}")
@@ -287,7 +244,7 @@ def train_protocol(protocol_name, protocol_config, config):
 
     stiffness_levels = ProtocolManager.generate_protocol(protocol_config)
     print(f"Stiffness levels: {[f'{s:.0f}' for s in stiffness_levels]}")
-    print(f"CHALLENGING: 1cm tolerance, 700 max steps")
+    print(f"1cm tolerance, 700 max steps")
 
     env = CurriculumEnv(
         stiffness_levels=stiffness_levels,
@@ -296,7 +253,6 @@ def train_protocol(protocol_name, protocol_config, config):
         max_steps=700
     )
 
-    # Same optimized SAC
     model = SAC(
         'MlpPolicy',
         env,
@@ -328,10 +284,6 @@ def train_protocol(protocol_name, protocol_config, config):
 
     return model, callback.metrics, stiffness_levels
 
-
-# ============================================================================
-# EVALUATION
-# ============================================================================
 
 def evaluate_on_stiffness(model, stiffness, target_distance, num_episodes=30):
     env = ChallengingSpringSliderEnv(
@@ -389,13 +341,9 @@ def evaluate_generalization(model, test_stiffnesses, target_distance, num_episod
     return results
 
 
-# ============================================================================
-# VISUALIZATION (Same structure, updated labels)
-# ============================================================================
-
 def plot_training_curves(all_training_metrics, config):
     fig, axes = plt.subplots(2, 2, figsize=(16, 10))
-    fig.suptitle('CHALLENGING Training (1cm tolerance)', fontsize=16, fontweight='bold')
+    fig.suptitle('Training (1cm tolerance)', fontsize=16, fontweight='bold')
 
     metrics_to_plot = [
         ('errors', 'Distance Error (cm)', axes[0, 0]),
@@ -422,7 +370,7 @@ def plot_training_curves(all_training_metrics, config):
     plt.tight_layout()
     plot_path = os.path.join(config['plots_dir'], 'challenging_training_curves.png')
     plt.savefig(plot_path, dpi=300, bbox_inches='tight')
-    print(f"✓ Saved training curves to {plot_path}")
+    print(f"Saved training curves to {plot_path}")
     plt.close()
 
 
@@ -445,7 +393,7 @@ def plot_generalization_heatmap(all_generalization_results, test_stiffnesses, co
         cbar_kws={'label': 'Mean Error (cm)'},
         ax=ax,
         vmin=0,
-        vmax=10  # Expect more variance now
+        vmax=10
     )
     ax.set_xlabel('Test Stiffness (N/m)', fontsize=12)
     ax.set_ylabel('Training Protocol', fontsize=12)
@@ -455,7 +403,7 @@ def plot_generalization_heatmap(all_generalization_results, test_stiffnesses, co
     plt.tight_layout()
     plot_path = os.path.join(config['plots_dir'], 'challenging_generalization_heatmap.png')
     plt.savefig(plot_path, dpi=300, bbox_inches='tight')
-    print(f"✓ Saved generalization heatmap to {plot_path}")
+    print(f"Saved generalization heatmap to {plot_path}")
     plt.close()
 
 
@@ -470,7 +418,7 @@ def plot_success_rates(all_generalization_results, test_stiffnesses, config):
     ax.axhline(y=50, color='gray', linestyle='--', alpha=0.5, label='50% baseline')
     ax.set_xlabel('Test Stiffness (N/m)', fontsize=12)
     ax.set_ylabel('Success Rate (%)', fontsize=12)
-    ax.set_title('CHALLENGING Success Rates (1cm tolerance)', fontsize=14, fontweight='bold')
+    ax.set_title('Success Rates (1cm tolerance)', fontsize=14, fontweight='bold')
     ax.legend(fontsize=9, loc='best')
     ax.grid(True, alpha=0.3)
     ax.set_ylim([0, 105])
@@ -478,7 +426,7 @@ def plot_success_rates(all_generalization_results, test_stiffnesses, config):
     plt.tight_layout()
     plot_path = os.path.join(config['plots_dir'], 'challenging_success_rates.png')
     plt.savefig(plot_path, dpi=300, bbox_inches='tight')
-    print(f"✓ Saved success rates to {plot_path}")
+    print(f"Saved success rates to {plot_path}")
     plt.close()
 
 
@@ -520,27 +468,18 @@ def plot_protocol_comparison(all_generalization_results, config):
     plt.tight_layout()
     plot_path = os.path.join(config['plots_dir'], 'challenging_protocol_comparison.png')
     plt.savefig(plot_path, dpi=300, bbox_inches='tight')
-    print(f"✓ Saved protocol comparison to {plot_path}")
+    print(f"Saved protocol comparison to {plot_path}")
     plt.close()
 
 
-# ============================================================================
-# MAIN PIPELINE
-# ============================================================================
-
 def run_complete_pipeline():
     print("\n" + "=" * 80)
-    print("FAST CHALLENGING PIPELINE - 5 KEY PROTOCOLS (MEDICAL RANGE)")
-    print("=" * 80)
     print(f"Start time: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
-    print(f"\nFAST VERSION SETTINGS:")
-    print(f"  ⚡ Training: 150k steps (reduced for speed)")
-    print(f"  🎯 Tolerance: 1cm")
-    print(f"  🏥 Range: 50-600 N/m (medically realistic)")
-    print(f"  📊 Protocols: 5 key protocols (9→5 for speed)")
-    print(f"  🧪 Test points: 14 stiffnesses")
-    print(f"  ⏱️ Est. time: ~10 hours (vs 25 hours full version)")
-    print("\nExpected: Clear differentiation, faster results!")
+    print(f"Training: 150k steps")
+    print(f"Tolerance: 1cm")
+    print(f"Range: 50-600 N/m")
+    print(f"Protocols: 5")
+    print(f"Test points: 14 untrained stiffnesses")
     print("=" * 80)
 
     os.makedirs(CONFIG['results_dir'], exist_ok=True)
@@ -552,7 +491,7 @@ def run_complete_pipeline():
     all_trained_stiffnesses = {}
 
     print("\n" + "=" * 80)
-    print("PHASE 1: TRAINING 5 KEY PROTOCOLS")
+    print("PHASE 1: TRAINING 5 PROTOCOLS")
     print("=" * 80)
 
     for protocol_name, protocol_config in CONFIG['protocols'].items():
@@ -615,10 +554,10 @@ def run_complete_pipeline():
     results_path = os.path.join(CONFIG['results_dir'], 'challenging_results_summary.json')
     with open(results_path, 'w') as f:
         json.dump(results_summary, f, indent=2)
-    print(f"✓ Saved results summary to {results_path}")
+    print(f"Saved results summary to {results_path}")
 
     print("\n" + "=" * 80)
-    print("FINAL SUMMARY - CHALLENGING RESULTS")
+    print("RESULTS")
     print("=" * 80)
 
     print("\nBest Performing Protocol (lowest error on unseen stiffnesses):")
@@ -631,22 +570,21 @@ def run_complete_pipeline():
         mean_success[protocol] = np.mean(all_success)
 
     best_protocol = min(mean_errors, key=mean_errors.get)
-    print(f"  🏆 {best_protocol}")
-    print(f"     Error: {mean_errors[best_protocol]:.2f} cm")
-    print(f"     Success Rate: {mean_success[best_protocol] * 100:.1f}%")
+    print(f"{best_protocol}")
+    print(f"Error: {mean_errors[best_protocol]:.2f} cm")
+    print(f"Success Rate: {mean_success[best_protocol] * 100:.1f}%")
 
     print("\nAll protocols ranked by generalization error:")
     for i, (protocol, error) in enumerate(sorted(mean_errors.items(), key=lambda x: x[1]), 1):
         print(f"  {i}. {protocol}: {error:.2f}cm error, {mean_success[protocol] * 100:.1f}% success")
 
     print("\n" + "=" * 80)
-    print("CHALLENGING PIPELINE COMPLETE!")
+    print("PIPELINE COMPLETE!")
     print(f"End time: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
     print(f"\nResults saved to:")
     print(f"  - Models: {CONFIG['models_dir']}/")
     print(f"  - Plots: {CONFIG['plots_dir']}/")
     print(f"  - Data: {CONFIG['results_dir']}/")
-    print("\n🎯 Expected: Clear protocol differentiation with medical range (50-600 N/m)!")
     print("=" * 80 + "\n")
 
 
