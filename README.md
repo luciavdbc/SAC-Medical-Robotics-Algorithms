@@ -74,8 +74,8 @@ Physics: Hooke's law (F = -kx)
 
 ```bibtex
 @article{vandebeek2025sac,
-  title={Soft Actor-Critic for Robotic Surgery: Adaptive Tissue Handling},
-  author={van de Beek, Lucia},
+  title={Reinforcement Learning in Robotic Surgery: Using Soft Actor-Critic Algorithms for Adaptive Tissue Handling},
+  author={van den Boogaart Castro, Lucia},
   year={2025}
 }
 ```
