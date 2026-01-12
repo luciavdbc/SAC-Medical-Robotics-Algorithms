@@ -278,7 +278,7 @@ def train_protocol(protocol_name, protocol_config, config):
     model_path = os.path.join(config['models_dir'], f"{protocol_name}.zip")
     os.makedirs(config['models_dir'], exist_ok=True)
     model.save(model_path)
-    print(f"✓ Model saved to {model_path}")
+    print(f"Model saved to {model_path}")
 
     env.close()
 
@@ -590,3 +590,4 @@ def run_complete_pipeline():
 
 if __name__ == "__main__":
     run_complete_pipeline()
+
