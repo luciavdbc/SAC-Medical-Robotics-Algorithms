@@ -32,11 +32,9 @@ Takes about 10 hours to complete.
 
 **Linear, small stiffness increments**: 40 N/m increments
 - Trains on 15 stiffness levels
-- Best performance on unseen values
 
 **Linear, large stiffness increments**: 110 N/m increments
 - Trains on 6 stiffness levels
-- Fastest training but worse generalization
 
 **Logarithmic**: More practice on easy cases
 - Trains on 15 levels with logarithmic spacing
