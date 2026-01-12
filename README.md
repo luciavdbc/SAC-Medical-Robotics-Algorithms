@@ -82,7 +82,7 @@ Physics: Hooke's law (F = -kx)
 
 ## Contact
 
-Lucia van de Beek
+Lucia van den Boogaart
 GitHub: [@luciavdbc](https://github.com/luciavdbc)
 
 ## License
