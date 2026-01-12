@@ -468,7 +468,7 @@ class SpringSliderEnv(gym.Env):
         }
 
     def _draw_target_line(self):
-        """Draw visual marker showing target distance."""
+        """Making target distance visible."""
         if self.target_line_id is not None:
             try:
                 p.removeUserDebugItem(self.target_line_id)
@@ -594,3 +594,4 @@ if __name__ == "__main__":
 
     env.close()
     print("\nTest complete")
+
