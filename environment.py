@@ -1,16 +1,18 @@
 """
-Spring Slider Gymnasium Environment
-====================================
+Medical Tissue Manipulation Environment
+========================================
 
-A reinforcement learning environment for training agents to pull a spring-loaded
-slider to target distances with optimal smoothness and accuracy.
+A reinforcement learning environment simulating surgical tissue manipulation
+where the agent must handle tissues of varying stiffness.
 
-Features:
-- Continuous action space (force application)
-- Variable stiffness levels
-- Configurable target distances
-- Reward based on accuracy, smoothness, and speed
-- Compatible with Stable-Baselines3 and other RL libraries
+Environment structure follows the Gymnasium API:
+https://gymnasium.farama.org/
+
+Physics based on Hooke's Law (F = -kx) for tissue elasticity.
+PyBullet physics engine used for simulation: https://pybullet.org/
+
+Compatible with Stable-Baselines3 for SAC training:
+https://stable-baselines3.readthedocs.io/
 """
 
 import gymnasium as gym
@@ -23,22 +25,25 @@ import os
 
 class SpringSliderEnv(gym.Env):
     """
-    Spring Slider Environment for motor learning research.
+    Spring-loaded slider environment representing tissue manipulation.
+    
+    The agent controls forces applied to a block attached to a spring, representing tissue.
+    Goal is to pull the block to a target distance then let it return to rest.
+    Different spring stiffness values represent soft to stiff tissues.
 
     Observation Space:
         - position: Current slider position [0, 0.30] m
-        - velocity: Current slider velocity (unbounded)
+        - velocity: Current slider velocity
         - target_distance: Target position in meters
         - stiffness: Current spring stiffness (normalized)
         - time_elapsed: Time since episode start (normalized)
 
     Action Space:
-        - Continuous force to apply [-1, 1] (scaled internally)
+        - Continuous force [-1, 1] scaled to actual force range
 
-    Episode ends when:
-        - Block returns to rest position after reaching target area
-        - Maximum time steps reached
-        - Block gets stuck or goes out of bounds
+    Episode Termination:
+        - Block returns to rest after reaching target
+        - Maximum timesteps reached
     """
 
     metadata = {'render_modes': ['human', 'rgb_array'], 'render_fps': 60}
@@ -46,11 +51,11 @@ class SpringSliderEnv(gym.Env):
     def __init__(
             self,
             stiffness=300.0,
-            target_distance=0.20,  
+            target_distance=0.20,
             max_steps=500,
             render_mode=None,
             gui=False,
-            target_tolerance=0.01,  # 1 cm tolerance for "success"
+            target_tolerance=0.01,
             reward_weights=None
     ):
         super().__init__()
@@ -61,28 +66,27 @@ class SpringSliderEnv(gym.Env):
         self.max_steps = max_steps
         self.render_mode = render_mode
         self.gui = gui
-        self.target_tolerance = target_tolerance
+        self.target_tolerance = target_tolerance  # 1 cm tolerance
 
-        # Reward weights (accuracy, force smoothness, velocity smoothness, speed)
+        # Reward shaping weights
         if reward_weights is None:
             self.reward_weights = {
-                'accuracy': 100.0,  # Penalty for distance error
-                'peak_force': 0.01,  # Penalty for high peak force
-                'peak_velocity': 1.0,  # Penalty for high peak velocity
-                'time': 0.1,  # Penalty for taking too long
-                'success_bonus': 50.0  # Bonus for being within tolerance
+                'accuracy': 100.0,      
+                'peak_force': 0.01,     
+                'peak_velocity': 1.0,  
+                'time': 0.1,           
+                'success_bonus': 50.0   
             }
         else:
             self.reward_weights = reward_weights
 
         # Physical constants
-        self.max_force = 50.0  # Maximum force agent can apply (N)
-        self.max_position = 0.30  # Maximum slider travel (m)
-        self.reset_pos_threshold = 0.0005  # Consider "zero" position
-        self.reset_vel_threshold = 0.001  # Consider "stopped"
+        self.max_force = 50.0              
+        self.max_position = 0.30          
+        self.reset_pos_threshold = 0.0005  
+        self.reset_vel_threshold = 0.001  
 
-        # Define action and observation spaces
-        # Action: continuous force [-1, 1]
+        # Action space: continuous force in [-1, 1]
         self.action_space = spaces.Box(
             low=-1.0,
             high=1.0,
@@ -90,14 +94,13 @@ class SpringSliderEnv(gym.Env):
             dtype=np.float32
         )
 
-        # Observation: [position, velocity, target, stiffness_normalized, time_normalized]
+        # Observation: [position, velocity, target, stiffness_norm, time_norm]
         self.observation_space = spaces.Box(
             low=np.array([0.0, -5.0, 0.0, 0.0, 0.0], dtype=np.float32),
             high=np.array([0.30, 5.0, 0.30, 1.0, 1.0], dtype=np.float32),
             dtype=np.float32
         )
 
-        # Episode tracking
         self.current_step = 0
         self.max_distance_reached = 0.0
         self.peak_force = 0.0
@@ -105,21 +108,19 @@ class SpringSliderEnv(gym.Env):
         self.has_reached_target_area = False
         self.time_to_target = None
 
-        # PyBullet setup
         self.physics_client = None
         self.slider_id = None
         self.slider_joint_index = None
         self.target_line_id = None
 
-        # Create URDF file
+        # Create URDF file for PyBullet
         self._create_urdf()
 
     def _create_urdf(self):
-        """Creating the URDF file for the slider mechanism."""
         urdf_content = """<?xml version="1.0"?>
 <robot name="grooved_slider">
 
-  <!-- TRACK BASE with GROOVE -->
+  <!-- Track base with groove for slider -->
   <link name="world">
     <!-- Main track surface -->
     <visual>
@@ -131,7 +132,7 @@ class SpringSliderEnv(gym.Env):
         <color rgba="0.6 0.6 0.6 1"/>
       </material>
     </visual>
-    <!-- Left rail (creates groove) -->
+    <!-- Left rail -->
     <visual>
       <origin xyz="0.05 -0.018 0.01" rpy="0 0 0"/>
       <geometry>
@@ -141,7 +142,7 @@ class SpringSliderEnv(gym.Env):
         <color rgba="0.4 0.4 0.4 1"/>
       </material>
     </visual>
-    <!-- Right rail (creates groove) -->
+    <!-- Right rail -->
     <visual>
       <origin xyz="0.05 0.018 0.01" rpy="0 0 0"/>
       <geometry>
@@ -151,7 +152,7 @@ class SpringSliderEnv(gym.Env):
         <color rgba="0.4 0.4 0.4 1"/>
       </material>
     </visual>
-    <!-- FILLED SECTION (no groove) -->
+    <!-- Filled section (no groove) -->
     <visual>
       <origin xyz="-0.147 0 0.01" rpy="0 0 0"/>
       <geometry>
@@ -179,7 +180,7 @@ class SpringSliderEnv(gym.Env):
     </inertial>
   </link>
 
-  <!-- RED BLOCK (fixed anchor) -->
+  <!-- Red block: fixed anchor point -->
   <link name="red_block">
     <visual>
       <origin xyz="0 0 0" rpy="0 0 0"/>
@@ -208,7 +209,7 @@ class SpringSliderEnv(gym.Env):
     <origin xyz="-0.18 0 0.025" rpy="0 0 0"/>
   </joint>
 
-  <!-- BLUE MOVABLE BLOCK -->
+  <!-- Blue block: movable slider -->
   <link name="blue_block">
     <visual>
       <origin xyz="0 0 0.02" rpy="0 0 0"/>
@@ -241,6 +242,7 @@ class SpringSliderEnv(gym.Env):
     </inertial>
   </link>
 
+  <!-- Prismatic joint allows sliding motion -->
   <joint name="slider" type="prismatic">
     <parent link="world"/>
     <child link="blue_block"/>
@@ -256,68 +258,9 @@ class SpringSliderEnv(gym.Env):
             f.write(urdf_content)
 
     def reset(self, seed=None, options=None):
-        """Reset the environment to initial state."""
         super().reset(seed=seed)
 
-        # Handle options for curriculum learning
-        if options is not None:
-            if 'stiffness' in options:
-                self.stiffness = options['stiffness']
-            if 'target_distance' in options:
-                self.target_distance = options['target_distance']
-
-        # Disconnect previous session if exists
-        if self.physics_client is not None:
-            p.disconnect(self.physics_client)
-
-        # Initialize PyBullet
-        if self.gui or self.render_mode == 'human':
-            self.physics_client = p.connect(p.GUI)
-            p.configureDebugVisualizer(p.COV_ENABLE_GUI, 0)
-            p.resetDebugVisualizerCamera(
-                cameraDistance=0.65,
-                cameraYaw=90,
-                cameraPitch=-20,
-                cameraTargetPosition=[0, 0, 0.5]
-            )
-        else:
-            self.physics_client = p.connect(p.DIRECT)
-
-        p.setAdditionalSearchPath(pybullet_data.getDataPath())
-        p.setGravity(0, 0, -9.81)
-        p.setTimeStep(1.0 / 240.0)
-
-        # Load environment
-        plane_id = p.loadURDF("plane.urdf")
-        self.slider_id = p.loadURDF(
-            "grooved_slider.urdf",
-            basePosition=[0, 0, 0.5],
-            useFixedBase=True,
-            flags=p.URDF_USE_SELF_COLLISION
-        )
-
-        # Enable self-collision
-        num_joints = p.getNumJoints(self.slider_id)
-        for i in range(-1, num_joints):
-            for j in range(-1, num_joints):
-                if i != j:
-                    p.setCollisionFilterPair(self.slider_id, self.slider_id, i, j, 1)
-
-        # Find slider joint
-        self.slider_joint_index = None
-        for i in range(num_joints):
-            info = p.getJointInfo(self.slider_id, i)
-            if b"slider" in info[1]:
-                self.slider_joint_index = i
-                break
-
-        if self.slider_joint_index is None:
-            raise RuntimeError("Could not find slider joint in URDF")
-
-        # Reset joint to zero position
-        p.resetJointState(self.slider_id, self.slider_joint_index, 0.0, 0.0)
-
-        # Reset episode tracking
+        # Reset tracking variables
         self.current_step = 0
         self.max_distance_reached = 0.0
         self.peak_force = 0.0
@@ -325,31 +268,81 @@ class SpringSliderEnv(gym.Env):
         self.has_reached_target_area = False
         self.time_to_target = None
 
-        # Draw target line if in GUI mode
-        if self.gui or self.render_mode == 'human':
-            self._draw_target_line()
+        if self.physics_client is None:
+            if self.gui:
+                self.physics_client = p.connect(p.GUI)
+                p.configureDebugVisualizer(p.COV_ENABLE_GUI, 0)
+            else:
+                self.physics_client = p.connect(p.DIRECT)
 
-        # Return initial observation
+            p.setAdditionalSearchPath(pybullet_data.getDataPath())
+            p.setGravity(0, 0, -9.81)
+            p.setTimeStep(1. / 240.)
+
+            # Camera setup for visualization
+            if self.gui:
+                p.resetDebugVisualizerCamera(
+                    cameraDistance=0.65,
+                    cameraYaw=90,
+                    cameraPitch=-20,
+                    cameraTargetPosition=[0, 0, 0.5]
+                )
+
+            # Load environment
+            planeId = p.loadURDF("plane.urdf")
+            self.slider_id = p.loadURDF(
+                "grooved_slider.urdf",
+                basePosition=[0, 0, 0.5],
+                useFixedBase=True,
+                flags=p.URDF_USE_SELF_COLLISION
+            )
+
+            num_joints = p.getNumJoints(self.slider_id)
+            for i in range(num_joints):
+                joint_info = p.getJointInfo(self.slider_id, i)
+                if b"slider" in joint_info[1]:
+                    self.slider_joint_index = i
+                    break
+
+        # Reset slider to starting position
+        p.resetJointState(self.slider_id, self.slider_joint_index, 0.0, 0.0)
+
+        # Draw target line
+        self._draw_target_line()
+
         observation = self._get_observation()
         info = self._get_info()
 
         return observation, info
 
     def step(self, action):
-        """Execute one environment step."""
+        """
+        Execute one timestep of the environment.
+        
+        Applies force from action, simulates spring dynamics using Hooke's Law,
+        and returns observation, reward, and termination status.
+        """
+        self.current_step += 1
+
         # Scale action to force range
-        force = float(action[0]) * self.max_force
+        force = action[0] * self.max_force
 
-        # Get current state before applying force
+        # Get current state
         joint_state = p.getJointState(self.slider_id, self.slider_joint_index)
-        position = joint_state[0]
-        velocity = joint_state[1]
+        old_position = joint_state[0]
+        old_velocity = joint_state[1]
 
-        # Apply spring force + agent's force
-        spring_force = -self.stiffness * position
-        total_force = spring_force + force
+        # Apply spring force (Hooke's Law: F = -kx)
+        spring_force = -self.stiffness * old_position
 
-        # Apply force to joint
+        # Total force on slider
+        total_force = force + spring_force
+
+        # Track peak values for reward calculation
+        self.peak_force = max(self.peak_force, abs(force))
+        self.peak_velocity = max(self.peak_velocity, abs(old_velocity))
+
+        # Applying force to joint
         p.setJointMotorControl2(
             self.slider_id,
             self.slider_joint_index,
@@ -364,53 +357,38 @@ class SpringSliderEnv(gym.Env):
             force=total_force
         )
 
-        # Step simulation
         p.stepSimulation()
-
-        # Update tracking metrics
-        self.current_step += 1
 
         # Get new state
         joint_state = p.getJointState(self.slider_id, self.slider_joint_index)
         new_position = joint_state[0]
         new_velocity = joint_state[1]
 
-        # Update max distance
+        # Track maximum distance reached by block
         if new_position > self.max_distance_reached:
             self.max_distance_reached = new_position
 
-        # Update peak force (absolute value of total force)
-        current_force = abs(total_force)
-        if current_force > self.peak_force:
-            self.peak_force = current_force
+            # Check if target area has been reached 
+            if not self.has_reached_target_area:
+                distance_to_target = abs(new_position - self.target_distance)
+                if distance_to_target <= self.target_tolerance:
+                    self.has_reached_target_area = True
+                    self.time_to_target = self.current_step
 
-        # Update peak velocity
-        if abs(new_velocity) > self.peak_velocity:
-            self.peak_velocity = abs(new_velocity)
-
-        # Check if reached target area for the first time
-        if not self.has_reached_target_area:
-            if abs(new_position - self.target_distance) <= self.target_tolerance:
-                self.has_reached_target_area = True
-                self.time_to_target = self.current_step
-
-        # Check termination conditions
         terminated = False
         truncated = False
 
-        # Episode ends when block returns to rest after motion
-        if self.max_distance_reached > 0.01:  # Has moved significantly
+        # Episode ends when block returns to rest after moving
+        if self.max_distance_reached > 0.01:
             if abs(new_position) < self.reset_pos_threshold and abs(new_velocity) < self.reset_vel_threshold:
                 terminated = True
 
-        # Truncate if max steps reached
         if self.current_step >= self.max_steps:
             truncated = True
 
         # Calculate reward
         reward = self._calculate_reward(new_position, new_velocity, terminated)
 
-        # Get observation and info
         observation = self._get_observation()
         info = self._get_info()
 
@@ -418,51 +396,48 @@ class SpringSliderEnv(gym.Env):
 
     def _calculate_reward(self, position, velocity, episode_ended):
         """
-        Calculate reward based on multiple objectives:
-        - Accuracy: Distance from max_distance_reached to target
-        - Smoothness: Peak force and peak velocity penalties
-        - Speed: Time to complete the task
+        Reward function based on accuracy, smoothness and speed.
+        Main reward given at episode end based on how close we got to target.
         """
         reward = 0.0
 
-        # Only calculate final reward when episode ends
+        # During episode: small step reward for progress
         if not episode_ended:
-            # Small step reward for making progress toward target
             distance_to_target = abs(position - self.target_distance)
             step_reward = -0.01 * distance_to_target
             return step_reward
 
-        # Accuracy component (main reward signal)
+        # At episode end: calculate final reward based on performance
         distance_error = abs(self.max_distance_reached - self.target_distance)
         accuracy_penalty = -self.reward_weights['accuracy'] * distance_error
         reward += accuracy_penalty
 
-        # Success bonus if within tolerance
+        # Bonus for high accuracy
         if distance_error <= self.target_tolerance:
             reward += self.reward_weights['success_bonus']
 
-        # Smoothness penalties
+        # Penalties for rough motion
         force_penalty = -self.reward_weights['peak_force'] * self.peak_force
         velocity_penalty = -self.reward_weights['peak_velocity'] * self.peak_velocity
         reward += force_penalty
         reward += velocity_penalty
 
-        # Time penalty (encourage faster completion)
+        # Small penalty for taking longer
         time_penalty = -self.reward_weights['time'] * self.current_step
         reward += time_penalty
 
         return reward
 
     def _get_observation(self):
-        """Get current observation."""
+        """Get current state observation."""
         joint_state = p.getJointState(self.slider_id, self.slider_joint_index)
         position = joint_state[0]
         velocity = joint_state[1]
 
-        # Normalize stiffness to [0, 1] range (assuming max stiffness of 1000)
+        # Normalize stiffness to [0, 1], assuming max 1000 N/m
         normalized_stiffness = self.stiffness / 1000.0
 
-        # Normalize time to [0, 1] range
+        # Normalize time
         normalized_time = self.current_step / self.max_steps
 
         observation = np.array([
@@ -476,7 +451,6 @@ class SpringSliderEnv(gym.Env):
         return observation
 
     def _get_info(self):
-        """Get additional information about the current state."""
         joint_state = p.getJointState(self.slider_id, self.slider_joint_index)
         position = joint_state[0]
 
@@ -494,14 +468,13 @@ class SpringSliderEnv(gym.Env):
         }
 
     def _draw_target_line(self):
-        """Draw a green line showing the target distance."""
+        """Draw visual marker showing target distance."""
         if self.target_line_id is not None:
             try:
                 p.removeUserDebugItem(self.target_line_id)
             except:
                 pass
 
-        # Calculate target position in world coordinates
         target_x = -0.094 + self.target_distance
         line_start = [target_x, -0.03, 0.525]
         line_end = [target_x, 0.03, 0.525]
@@ -515,9 +488,7 @@ class SpringSliderEnv(gym.Env):
         )
 
     def render(self):
-        """Render the environment."""
         if self.render_mode == 'rgb_array':
-            # Get camera image
             view_matrix = p.computeViewMatrixFromYawPitchRoll(
                 cameraTargetPosition=[0, 0, 0.5],
                 distance=0.65,
@@ -544,11 +515,9 @@ class SpringSliderEnv(gym.Env):
             rgb_array = rgb_array[:, :, :3]
             return rgb_array
         elif self.render_mode == 'human':
-            # GUI is already rendering
-            pass
+            pass  
 
     def close(self):
-        """Clean up the environment."""
         if self.target_line_id is not None:
             try:
                 p.removeUserDebugItem(self.target_line_id)
@@ -568,12 +537,11 @@ gym.register(
 )
 
 if __name__ == "__main__":
-    """Test the environment with random actions."""
+    """Test environment with random actions."""
     print("=" * 70)
     print("Testing Spring Slider Environment")
     print("=" * 70)
 
-    # Create environment
     env = SpringSliderEnv(
         stiffness=300.0,
         target_distance=0.20,
@@ -581,18 +549,19 @@ if __name__ == "__main__":
         render_mode='human'
     )
 
-    print("\nEnvironment created successfully")
+    print("\nEnvironment created")
     print(f"Action space: {env.action_space}")
     print(f"Observation space: {env.observation_space}")
 
-    # Run a few episodes with random actions
+    # Run test episodes
     num_episodes = 3
 
     for episode in range(num_episodes):
         obs, info = env.reset()
         print(f"\n{'=' * 70}")
         print(f"Episode {episode + 1}")
-        print(f"Target: {info['target_distance'] * 100:.1f} cm, Stiffness: {info['stiffness']:.0f} N/m")
+        print(f"Target: {info['target_distance'] * 100:.1f} cm")
+        print(f"Stiffness: {info['stiffness']:.0f} N/m")
         print(f"{'=' * 70}")
 
         episode_reward = 0
@@ -600,35 +569,28 @@ if __name__ == "__main__":
         step = 0
 
         while not done:
-            # Random action 
             action = env.action_space.sample()
-
             obs, reward, terminated, truncated, info = env.step(action)
             episode_reward += reward
             done = terminated or truncated
             step += 1
 
-            # Print progress every 50 steps
             if step % 50 == 0:
-                print(f"Step {step}: Pos={info['current_position'] * 100:.2f}cm, "
-                      f"MaxReached={info['max_distance_reached'] * 100:.2f}cm")
+                print(f"Step {step}: Position={info['current_position'] * 100:.2f}cm, "
+                      f"Max={info['max_distance_reached'] * 100:.2f}cm")
 
         # Episode summary
-        print(f"\n{'=' * 70}")
-        print(f"Episode {episode + 1} Complete!")
-        print(f"Max distance reached: {info['max_distance_reached'] * 100:.2f} cm")
-        print(f"Target distance: {info['target_distance'] * 100:.1f} cm")
+        print(f"\nEpisode Complete")
+        print(f"Max distance: {info['max_distance_reached'] * 100:.2f} cm")
+        print(f"Target: {info['target_distance'] * 100:.1f} cm")
         print(f"Error: {info['distance_error'] * 100:.2f} cm")
         print(f"Peak force: {info['peak_force']:.1f} N")
         print(f"Peak velocity: {info['peak_velocity']:.2f} m/s")
-        print(f"Total steps: {info['current_step']}")
-        print(f"Episode reward: {episode_reward:.2f}")
+        print(f"Steps: {info['current_step']}")
+        print(f"Reward: {episode_reward:.2f}")
 
         if info['has_reached_target']:
-            print(f"Reached target area in {info['time_to_target']} steps")
-        else:
-            print("✗ Did not reach target area")
-        print(f"{'=' * 70}")
+            print(f"Reached target in {info['time_to_target']} steps")
 
     env.close()
-    print("\nEnvironment test complete")
+    print("\nTest complete")
